@@ -10,19 +10,23 @@ const STYLES = `
   align-items: center;
   gap: 6px;
   height: 36px;
-  padding: 0 16px;
+  /* Matches YouTube's own icon+label buttons: tighter on the icon side. */
+  padding: 0 16px 0 12px;
   border: none;
   border-radius: 18px;
   background: var(--yt-spec-badge-chip-background, rgba(0, 0, 0, 0.05));
   color: var(--yt-spec-text-primary, #0f0f0f);
-  font: 500 14px/36px "Roboto", "Arial", sans-serif;
+  font-family: "Roboto", "Arial", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
   white-space: nowrap;
   cursor: pointer;
   transition: background 120ms ease, opacity 120ms ease;
 }
 .${BUTTON_CLASS}:hover { background: var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.1)); }
 .${BUTTON_CLASS}[disabled] { cursor: default; opacity: 0.6; }
-.${BUTTON_CLASS} svg { width: 18px; height: 18px; fill: currentColor; }
+.${BUTTON_CLASS} svg { width: 24px; height: 24px; fill: currentColor; }
 `
 
 const ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1Zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H8V7h11v14Z"/></svg>`
