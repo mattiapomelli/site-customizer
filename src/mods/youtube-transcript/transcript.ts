@@ -1,5 +1,4 @@
 import type { ModContext } from '../../core/define'
-import { extractJsonAfter } from '../../core/json'
 
 export interface Cue {
   /** Seconds from the start of the video. */
@@ -7,176 +6,86 @@ export interface Cue {
   text: string
 }
 
-/* ------------------------------------------------------------------ *
- * Path 1: the caption tracks YouTube's own player uses.
- * Fast and complete, but it depends on undocumented page internals.
- * ------------------------------------------------------------------ */
-
-interface CaptionTrack {
-  baseUrl?: string
-  languageCode?: string
-  kind?: string
-  name?: { simpleText?: string }
-}
-
-function pickTrack(tracks: CaptionTrack[]): CaptionTrack | undefined {
-  const uiLang = document.documentElement.lang?.split('-')[0] ?? 'en'
-  const inUiLang = tracks.filter((t) => t.languageCode?.split('-')[0] === uiLang)
-  const pool = inUiLang.length > 0 ? inUiLang : tracks
-  // Prefer human-authored captions over 'asr' (auto-generated).
-  return pool.find((t) => t.kind !== 'asr') ?? pool[0]
-}
-
-async function fetchCues(videoId: string, signal: AbortSignal): Promise<Cue[]> {
-  const page = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-    credentials: 'include',
-    signal,
-  })
-  const html = await page.text()
-
-  const player = extractJsonAfter(html, 'ytInitialPlayerResponse') as
-    | { captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: CaptionTrack[] } } }
-    | null
-
-  const tracks = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? []
-  const track = pickTrack(tracks)
-  if (!track?.baseUrl) throw new Error('no caption track')
-
-  const res = await fetch(`${track.baseUrl}&fmt=json3`, { credentials: 'include', signal })
-  if (!res.ok) throw new Error(`timedtext ${res.status}`)
-
-  // YouTube answers 200 with an empty body when the track needs a
-  // proof-of-origin token, which the player has and we do not. Common on
-  // auto-generated tracks. Say so, instead of failing on unparseable JSON.
-  const raw = await res.text()
-  if (raw.trim() === '') throw new Error('timedtext returned empty — captions are token-gated')
-
-  const body = JSON.parse(raw) as {
-    events?: Array<{ tStartMs?: number; segs?: Array<{ utf8?: string }> }>
-  }
-
-  return (body.events ?? [])
-    .map((e) => ({
-      start: (e.tStartMs ?? 0) / 1000,
-      text: (e.segs ?? [])
-        .map((s) => s.utf8 ?? '')
-        .join('')
-        .trim(),
-    }))
-    .filter((c) => c.text !== '')
-}
-
-/* ------------------------------------------------------------------ *
- * Path 2: read the transcript panel YouTube renders in the page.
- * Slower and it flashes the panel open, but it only breaks if the
- * visible UI breaks.
- * ------------------------------------------------------------------ */
-
-const PANEL =
-  'ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]'
-
-const isPanelOpen = (el: Element | null) =>
-  el?.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED'
-
-function parseTimestamp(raw: string): number {
-  const parts = raw.trim().split(':').map(Number)
-  return parts.reduce((acc, n) => acc * 60 + (Number.isFinite(n) ? n : 0), 0)
-}
-
-/** Where YouTube has put the "Show transcript" control, most specific first. */
-const TRANSCRIPT_BUTTONS = [
-  'ytd-video-description-transcript-section-renderer button',
-  '#description-inline-expander ytd-video-description-transcript-section-renderer button',
-  'ytd-engagement-panel-section-list-renderer #header button[aria-label*="ranscript" i]',
-]
+/**
+ * The same call YouTube's own transcript panel makes.
+ *
+ * Two earlier approaches are gone because both were verified dead, not merely
+ * fragile: the `timedtext` caption URL answers 200-with-empty-body for
+ * auto-generated tracks, which need a proof-of-origin token only the player
+ * has; and clicking "Show transcript" from a content script never opens the
+ * panel, even as a real trusted click. `get_transcript` is also gone and now
+ * answers FAILED_PRECONDITION.
+ *
+ * This endpoint needs no auth header, no cookies, and no page scrape.
+ */
+const ENDPOINT = 'https://www.youtube.com/youtubei/v1/get_panel?prettyPrint=false'
+const PANEL_ID = 'PAmodern_transcript_view'
+/** Only has to be roughly current — a year-old version is still accepted. */
+const CLIENT_VERSION = '2.20250101.00.00'
 
 /**
- * Last resort when none of the known selectors hit: anything that names itself
- * as the transcript toggle. Skips our own button, which is also called
- * "Transcript" and would otherwise click itself.
+ * `params` is a protobuf of `{ 149: { 1: videoId, 3: 2 } }`. Small enough to
+ * emit by hand; video ids are always 11 chars, so this never needs padding.
  */
-function findByLabel(): HTMLElement | null {
-  const candidates = document.querySelectorAll<HTMLElement>(
-    'button, ytd-menu-service-item-renderer, tp-yt-paper-item, yt-list-item-view-model',
-  )
-  for (const el of candidates) {
-    if (el.closest('.sc-yt-transcript')) continue
-    const text = `${el.getAttribute('aria-label') ?? ''} ${el.textContent ?? ''}`
-    if (/transcript/i.test(text)) return el
-  }
-  return null
+function buildParams(videoId: string): string {
+  const id = new TextEncoder().encode(videoId)
+  const inner = [0x0a, id.length, ...id, 0x18, 0x02]
+  return btoa(String.fromCharCode(0xaa, 0x09, inner.length, ...inner))
 }
 
-function findTranscriptButton(): HTMLElement | null {
-  for (const selector of TRANSCRIPT_BUTTONS) {
-    const el = document.querySelector<HTMLElement>(selector)
-    if (el) return el
-  }
-  return findByLabel()
+interface SegmentViewModel {
+  simpleText?: string
+  timestamp?: string
 }
 
-async function openPanel(ctx: ModContext): Promise<boolean> {
-  if (isPanelOpen(document.querySelector(PANEL))) return false
-
-  // The control lives inside the description, which may still be collapsed.
-  document.querySelector<HTMLElement>('#description-inline-expander #expand')?.click()
-
-  let button = findTranscriptButton()
-  if (!button) {
-    // Expanding is async; give it one pass of the observer before giving up.
-    await ctx.waitFor(TRANSCRIPT_BUTTONS[0]!, { timeout: 4000 }).catch(() => null)
-    button = findTranscriptButton()
-  }
-  if (!button) throw new Error('could not find a "Show transcript" control on the page')
-
-  ctx.log('opening the transcript panel via', button)
-  button.click()
-  return true
-}
-
-function closePanel(): void {
-  document.querySelector<HTMLElement>(`${PANEL} #visibility-button button`)?.click()
-}
-
-async function scrapeCues(ctx: ModContext): Promise<Cue[]> {
-  const weOpenedIt = await openPanel(ctx)
-  try {
-    await ctx.waitFor('ytd-transcript-segment-renderer', { timeout: 8000 })
-    // Segments stream in; wait until the count stops growing.
-    let previous = -1
-    for (let i = 0; i < 20; i++) {
-      const count = document.querySelectorAll('ytd-transcript-segment-renderer').length
-      if (count === previous) break
-      previous = count
-      await new Promise((r) => setTimeout(r, 150))
+/**
+ * Collect every segment wherever it sits. The response nests them about eight
+ * levels down through renderers we have no other use for, so walking for the
+ * key we want survives YouTube reshuffling the wrapper layers.
+ */
+function collectSegments(node: unknown, out: SegmentViewModel[] = []): SegmentViewModel[] {
+  if (Array.isArray(node)) {
+    for (const item of node) collectSegments(item, out)
+  } else if (node !== null && typeof node === 'object') {
+    for (const [key, value] of Object.entries(node)) {
+      if (key === 'transcriptSegmentViewModel') out.push(value as SegmentViewModel)
+      else collectSegments(value, out)
     }
-
-    return [...document.querySelectorAll('ytd-transcript-segment-renderer')]
-      .map((seg) => ({
-        start: parseTimestamp(seg.querySelector('.segment-timestamp')?.textContent ?? '0'),
-        text: (seg.querySelector('.segment-text')?.textContent ?? '').trim(),
-      }))
-      .filter((c) => c.text !== '')
-  } finally {
-    if (weOpenedIt) closePanel()
   }
+  return out
 }
 
-/* ------------------------------------------------------------------ */
+/** "1:02:43" -> 3763 */
+function parseTimestamp(raw: string): number {
+  return raw
+    .trim()
+    .split(':')
+    .reduce((acc, part) => acc * 60 + (Number(part) || 0), 0)
+}
 
 export async function getTranscript(ctx: ModContext): Promise<Cue[]> {
   const videoId = new URL(location.href).searchParams.get('v')
+  if (!videoId) throw new Error('no video id in the URL')
 
-  if (videoId) {
-    try {
-      const cues = await fetchCues(videoId, ctx.signal)
-      if (cues.length > 0) return cues
-    } catch (err) {
-      ctx.log('caption API unavailable, reading the transcript panel instead', err)
-    }
-  }
+  const res = await fetch(ENDPOINT, {
+    method: 'POST',
+    credentials: 'include',
+    signal: ctx.signal,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      context: { client: { clientName: 'WEB', clientVersion: CLIENT_VERSION } },
+      panelId: PANEL_ID,
+      params: buildParams(videoId),
+    }),
+  })
+  if (!res.ok) throw new Error(`get_panel returned ${res.status}`)
 
-  return scrapeCues(ctx)
+  const segments = collectSegments(await res.json())
+  ctx.log(`${segments.length} segments for ${videoId}`)
+
+  return segments
+    .map((s) => ({ start: parseTimestamp(s.timestamp ?? '0'), text: (s.simpleText ?? '').trim() }))
+    .filter((c) => c.text !== '')
 }
 
 const stamp = (seconds: number): string => {

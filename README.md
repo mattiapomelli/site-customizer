@@ -77,9 +77,21 @@ pattern-scoped injection would fail to appear.
 button row under the video. Click copies the transcript as prose; shift-click copies it
 with timestamps.
 
-It tries YouTube's caption tracks first (fast, complete), and falls back to reading the
-on-page transcript panel if that breaks. The first path leans on undocumented internals
-and will break eventually; the fallback only breaks if the visible UI does.
+It calls `youtubei/v1/get_panel` with `panelId: PAmodern_transcript_view` — the same
+request YouTube's own transcript panel makes. No auth header, no cookies, and no page
+scrape: the only input is the video id, encoded into the `params` protobuf by hand.
+
+There is deliberately no fallback. Two other routes were tried and both are dead ends,
+not merely fragile:
+
+- The `timedtext` caption URL answers **200 with an empty body** for auto-generated
+  tracks, which need a proof-of-origin token only the player holds.
+- Clicking "Show transcript" from a content script **never opens the panel**, even as a
+  real trusted click at the right coordinates.
+
+`get_transcript`, the endpoint most write-ups still reference, now answers
+`FAILED_PRECONDITION`. Keeping either path as a fallback would add latency and code that
+can never succeed.
 
 ## Layout
 
