@@ -45,7 +45,13 @@ async function fetchCues(videoId: string, signal: AbortSignal): Promise<Cue[]> {
   const res = await fetch(`${track.baseUrl}&fmt=json3`, { credentials: 'include', signal })
   if (!res.ok) throw new Error(`timedtext ${res.status}`)
 
-  const body = (await res.json()) as {
+  // YouTube answers 200 with an empty body when the track needs a
+  // proof-of-origin token, which the player has and we do not. Common on
+  // auto-generated tracks. Say so, instead of failing on unparseable JSON.
+  const raw = await res.text()
+  if (raw.trim() === '') throw new Error('timedtext returned empty — captions are token-gated')
+
+  const body = JSON.parse(raw) as {
     events?: Array<{ tStartMs?: number; segs?: Array<{ utf8?: string }> }>
   }
 
@@ -77,16 +83,53 @@ function parseTimestamp(raw: string): number {
   return parts.reduce((acc, n) => acc * 60 + (Number.isFinite(n) ? n : 0), 0)
 }
 
+/** Where YouTube has put the "Show transcript" control, most specific first. */
+const TRANSCRIPT_BUTTONS = [
+  'ytd-video-description-transcript-section-renderer button',
+  '#description-inline-expander ytd-video-description-transcript-section-renderer button',
+  'ytd-engagement-panel-section-list-renderer #header button[aria-label*="ranscript" i]',
+]
+
+/**
+ * Last resort when none of the known selectors hit: anything that names itself
+ * as the transcript toggle. Skips our own button, which is also called
+ * "Transcript" and would otherwise click itself.
+ */
+function findByLabel(): HTMLElement | null {
+  const candidates = document.querySelectorAll<HTMLElement>(
+    'button, ytd-menu-service-item-renderer, tp-yt-paper-item, yt-list-item-view-model',
+  )
+  for (const el of candidates) {
+    if (el.closest('.sc-yt-transcript')) continue
+    const text = `${el.getAttribute('aria-label') ?? ''} ${el.textContent ?? ''}`
+    if (/transcript/i.test(text)) return el
+  }
+  return null
+}
+
+function findTranscriptButton(): HTMLElement | null {
+  for (const selector of TRANSCRIPT_BUTTONS) {
+    const el = document.querySelector<HTMLElement>(selector)
+    if (el) return el
+  }
+  return findByLabel()
+}
+
 async function openPanel(ctx: ModContext): Promise<boolean> {
   if (isPanelOpen(document.querySelector(PANEL))) return false
 
-  // The "Show transcript" button lives inside the collapsed description.
+  // The control lives inside the description, which may still be collapsed.
   document.querySelector<HTMLElement>('#description-inline-expander #expand')?.click()
 
-  const button = await ctx.waitFor<HTMLElement>(
-    'ytd-video-description-transcript-section-renderer button',
-    { timeout: 5000 },
-  )
+  let button = findTranscriptButton()
+  if (!button) {
+    // Expanding is async; give it one pass of the observer before giving up.
+    await ctx.waitFor(TRANSCRIPT_BUTTONS[0]!, { timeout: 4000 }).catch(() => null)
+    button = findTranscriptButton()
+  }
+  if (!button) throw new Error('could not find a "Show transcript" control on the page')
+
+  ctx.log('opening the transcript panel via', button)
   button.click()
   return true
 }
