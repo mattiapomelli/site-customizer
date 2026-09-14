@@ -1,4 +1,5 @@
 import type { Mod } from '../core/types'
+import gmailCopyEmail from './gmail-copy-email'
 import youtubeTranscript from './youtube-transcript'
 
 /**
@@ -7,4 +8,4 @@ import youtubeTranscript from './youtube-transcript'
  * The build reads this list to generate the manifest's match patterns,
  * so the content script only loads on sites you actually customize.
  */
-export const mods: Mod[] = [youtubeTranscript]
+export const mods: Mod[] = [youtubeTranscript, gmailCopyEmail]
