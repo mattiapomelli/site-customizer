@@ -11,10 +11,20 @@ npm install
 npm run build
 ```
 
+```sh
+npm run dev
+```
+
 Then `chrome://extensions` → enable Developer mode → **Load unpacked** → pick `dist/`.
 
-`npm run dev` rebuilds on save. Chrome picks up content-script changes on page reload;
-changes to `manifest.json` need the reload button on the extensions page.
+`npm run dev` rebuilds on save *and* reloads the extension for you: the watch build
+stamps `dist/build-id`, a dev-only service worker polls it, and on a change it calls
+`chrome.runtime.reload()` and then reloads any tab a content script runs on. No trip to
+chrome://extensions after the first load.
+
+That worker exists only in `npm run dev`. `npm run build` omits the bundle and the
+`background` manifest key entirely, so nothing dev-only ships in a real build. Switching
+between the two changes the manifest, which needs one manual reload to take effect.
 
 ## Writing a mod
 

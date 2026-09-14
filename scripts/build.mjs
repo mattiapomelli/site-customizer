@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const watch = process.argv.includes('--watch')
+// The dev-only auto-reload worker ships with `npm run dev`, never with `npm run build`.
+const dev = watch
 const outdir = 'dist'
 
 const shared = {
@@ -54,6 +56,7 @@ async function writeManifest() {
     description: 'Personal tweaks for the sites you use, each one toggleable.',
     version: '0.1.0',
     permissions: ['storage', 'tabs', 'clipboardWrite'],
+    ...(dev ? { background: { service_worker: 'dev-reload.js' } } : {}),
     host_permissions: origins,
     action: {
       default_popup: 'popup.html',
@@ -91,6 +94,8 @@ const syncPlugin = {
       if (result.errors.length > 0) return
       copyStatic()
       await writeManifest()
+      // Stamped last: the worker treats a new id as "everything else is on disk".
+      if (dev) writeFileSync(join(outdir, 'build-id'), String(Date.now()))
     })
   },
 }
@@ -99,7 +104,11 @@ rmSync(outdir, { recursive: true, force: true })
 mkdirSync(outdir, { recursive: true })
 
 const options = {
-  entryPoints: { content: 'src/content.ts', popup: 'src/popup/popup.ts' },
+  entryPoints: {
+    content: 'src/content.ts',
+    popup: 'src/popup/popup.ts',
+    ...(dev ? { 'dev-reload': 'src/dev/reload.ts' } : {}),
+  },
   outdir,
   ...shared,
   plugins: [syncPlugin],
@@ -108,7 +117,7 @@ const options = {
 if (watch) {
   const ctx = await context(options)
   await ctx.watch()
-  console.log('watching — reload the extension in chrome://extensions after changes')
+  console.log('watching — the extension reloads itself on each rebuild')
 } else {
   await build(options)
 }
