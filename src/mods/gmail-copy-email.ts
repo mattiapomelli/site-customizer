@@ -9,9 +9,21 @@ const CLASS = 'sc-gmail-copy-email'
  * every row.
  */
 const TARGET = 'span.gD[email]'
-/** The "<addr@example.com>" span Gmail shows beside the name on an open
- *  message. Absent when the message is collapsed. */
-const ADDRESS = 'go'
+/**
+ * Gmail shows "<addr@example.com>" next to the name on an open message, in its
+ * own element. Found by content rather than class name, since the class was
+ * not what it looked like and would churn anyway. Returns null on a collapsed
+ * message, which shows no address at all.
+ */
+function findAddressElement(span: HTMLElement, email: string): Element | null {
+  const parent = span.parentElement
+  if (!parent) return null
+  for (const el of parent.children) {
+    if (el === span || el.contains(span) || el.classList.contains(CLASS)) continue
+    if (el.textContent?.includes(email)) return el
+  }
+  return null
+}
 
 const COPY =
   '<path d="M13 1H3a1 1 0 0 0-1 1v10h2V3h9V1Zm2 3H6a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1Zm-1 11H7V6h7v9Z"/>'
@@ -56,11 +68,10 @@ export default defineMod({
       if (!email?.includes('@')) return
 
       // Sit after the visible address when there is one, so the button is not
-      // wedged between the name and the address. Collapsed messages show no
-      // address, so there we follow the name instead.
-      const next = span.nextElementSibling
-      const anchor = next?.classList.contains(ADDRESS) ? next : span
+      // wedged between the name and the address.
+      const anchor = findAddressElement(span, email) ?? span
       if (anchor.nextElementSibling?.classList.contains(CLASS)) return
+      ctx.log(anchor === span ? 'no address shown, anchoring to name' : 'anchoring after', anchor)
 
       const button = document.createElement('button')
       button.className = CLASS
