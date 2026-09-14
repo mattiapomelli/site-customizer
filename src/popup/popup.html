@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Site Customizer</h1>
+      <label class="switch" title="Turn every mod off everywhere">
+        <input type="checkbox" id="global" />
+        <span class="track"></span>
+      </label>
+    </header>
+
+    <section id="site" hidden>
+      <div class="row">
+        <div class="labels">
+          <span class="title" id="hostname"></span>
+          <span class="sub">All mods on this site</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="site-toggle" />
+          <span class="track"></span>
+        </label>
+      </div>
+    </section>
+
+    <ul id="mods"></ul>
+    <p id="empty" class="empty" hidden></p>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
