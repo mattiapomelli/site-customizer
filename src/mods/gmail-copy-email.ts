@@ -1,4 +1,4 @@
-import { defineMod } from '../core/define'
+import { defineMod, type ModContext } from '../core/define'
 import { copyText } from '../core/clipboard'
 
 const CLASS = 'sc-gmail-copy-email'
@@ -40,18 +40,60 @@ const STYLES = `
 .${CLASS}[data-copied="true"] { opacity: 1; color: #188038; }
 `
 
+const ACCOUNT = 'a[aria-label*="Google Account"], a[href*="SignOutOptions"]'
+const ADDRESS = /[\w.+-]+@[\w-]+\.[\w.-]+/g
+
+/**
+ * The signed-in account's own address, so we can leave its copy button off.
+ * Two independent sources, because either alone can be missing early on:
+ * Gmail's title is "<subject> - <account> - Gmail", and the account button's
+ * aria-label carries the address too.
+ */
+function readOwnAddresses(): Set<string> {
+  const found = new Set<string>()
+
+  // Anchored to the title's exact shape — a bare address match would also pick
+  // up an address that happens to be in the subject line.
+  const title = document.title.match(/ - ([\w.+-]+@[\w-]+\.[\w.-]+) - Gmail\s*$/)
+  if (title?.[1]) found.add(title[1].toLowerCase())
+
+  for (const el of document.querySelectorAll(ACCOUNT)) {
+    for (const m of (el.getAttribute('aria-label') ?? '').matchAll(ADDRESS)) {
+      found.add(m[0].toLowerCase())
+    }
+  }
+  return found
+}
+
+/**
+ * Resolve before adding any buttons, so we never briefly add one to your own
+ * address and leave it there. Fails open: if the account never resolves we
+ * show every button rather than none.
+ */
+async function resolveOwnAddresses(ctx: ModContext): Promise<Set<string>> {
+  const early = readOwnAddresses()
+  if (early.size > 0) return early
+
+  await ctx.waitFor(ACCOUNT, { timeout: 10_000 }).catch(() => null)
+  return readOwnAddresses()
+}
+
 export default defineMod({
   id: 'gmail-copy-email',
   name: 'Copy email address',
   description: 'Icon next to the sender and recipients that copies their address.',
   matches: ['*://mail.google.com/*'],
 
-  run(ctx) {
+  async run(ctx) {
     ctx.css(STYLES)
+
+    const mine = await resolveOwnAddresses(ctx)
+    ctx.log(mine.size > 0 ? `skipping own address: ${[...mine].join(', ')}` : 'own address unknown — showing all')
 
     ctx.onElement<HTMLElement>(TARGETS, (span) => {
       const email = span.getAttribute('email')
       if (!email?.includes('@')) return
+      if (mine.has(email.toLowerCase())) return
       if (span.nextElementSibling?.classList.contains(CLASS)) return
 
       const button = document.createElement('button')
