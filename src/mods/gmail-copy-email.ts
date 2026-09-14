@@ -1,6 +1,21 @@
 import { defineMod, type ModContext } from '../core/define'
 import { copyText } from '../core/clipboard'
 
+/**
+ * Your own addresses beyond the signed-in account, which is detected
+ * automatically. Gmail keeps send-as aliases in its own JS state, which a
+ * content script cannot read, so they have to be listed here.
+ *
+ * An entry starting with "@" matches the whole domain, so one line usually
+ * covers every alias you have on it.
+ *
+ *   const MY_ADDRESSES = ['@sleek.design', 'old.name@gmail.com']
+ *
+ * Addresses the mod sees are logged to the console as `[gmail-copy-email]`,
+ * which is the quickest way to fill this in.
+ */
+const MY_ADDRESSES: string[] = []
+
 const CLASS = 'sc-gmail-copy-email'
 /**
  * Sender (.gD) and recipients (.g2) in an open message. Gmail stores the
@@ -78,6 +93,17 @@ async function resolveOwnAddresses(ctx: ModContext): Promise<Set<string>> {
   return readOwnAddresses()
 }
 
+/** Exact address, configured domain, or Gmail's own "me" marker on the span. */
+function isMine(span: HTMLElement, email: string, detected: Set<string>): boolean {
+  const addr = email.toLowerCase()
+  if (detected.has(addr)) return true
+  if (span.getAttribute('name')?.toLowerCase() === 'me') return true
+  return MY_ADDRESSES.some((entry) => {
+    const e = entry.trim().toLowerCase()
+    return e.startsWith('@') ? addr.endsWith(e) : addr === e
+  })
+}
+
 export default defineMod({
   id: 'gmail-copy-email',
   name: 'Copy email address',
@@ -88,13 +114,20 @@ export default defineMod({
     ctx.css(STYLES)
 
     const mine = await resolveOwnAddresses(ctx)
-    ctx.log(mine.size > 0 ? `skipping own address: ${[...mine].join(', ')}` : 'own address unknown — showing all')
+    ctx.log(mine.size > 0 ? `own address: ${[...mine].join(', ')}` : 'own address unknown — showing all')
+    if (MY_ADDRESSES.length > 0) ctx.log('also treated as yours:', MY_ADDRESSES.join(', '))
+    const seen = new Set<string>()
 
     ctx.onElement<HTMLElement>(TARGETS, (span) => {
       const email = span.getAttribute('email')
       if (!email?.includes('@')) return
-      if (mine.has(email.toLowerCase())) return
       if (span.nextElementSibling?.classList.contains(CLASS)) return
+
+      if (isMine(span, email, mine)) return
+      if (!seen.has(email.toLowerCase())) {
+        seen.add(email.toLowerCase())
+        ctx.log('showing copy button for', email)
+      }
 
       const button = document.createElement('button')
       button.className = CLASS
