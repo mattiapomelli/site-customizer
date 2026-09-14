@@ -9,6 +9,9 @@ const CLASS = 'sc-gmail-copy-email'
  * every row.
  */
 const TARGET = 'span.gD[email]'
+/** The "<addr@example.com>" span Gmail shows beside the name on an open
+ *  message. Absent when the message is collapsed. */
+const ADDRESS = 'go'
 
 const COPY =
   '<path d="M13 1H3a1 1 0 0 0-1 1v10h2V3h9V1Zm2 3H6a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1Zm-1 11H7V6h7v9Z"/>'
@@ -51,7 +54,13 @@ export default defineMod({
     ctx.onElement<HTMLElement>(TARGET, (span) => {
       const email = span.getAttribute('email')
       if (!email?.includes('@')) return
-      if (span.nextElementSibling?.classList.contains(CLASS)) return
+
+      // Sit after the visible address when there is one, so the button is not
+      // wedged between the name and the address. Collapsed messages show no
+      // address, so there we follow the name instead.
+      const next = span.nextElementSibling
+      const anchor = next?.classList.contains(ADDRESS) ? next : span
+      if (anchor.nextElementSibling?.classList.contains(CLASS)) return
 
       const button = document.createElement('button')
       button.className = CLASS
@@ -80,7 +89,7 @@ export default defineMod({
         }
       })
 
-      span.after(button)
+      anchor.after(button)
       ctx.onCleanup(() => {
         clearTimeout(timer)
         button.remove()
