@@ -1,35 +1,19 @@
-import { defineMod, type ModContext } from '../core/define'
+import { defineMod } from '../core/define'
 import { copyText } from '../core/clipboard'
-
-/**
- * Your own addresses beyond the signed-in account, which is detected
- * automatically. Gmail keeps send-as aliases in its own JS state, which a
- * content script cannot read, so they have to be listed here.
- *
- * An entry starting with "@" matches the whole domain, so one line usually
- * covers every alias you have on it.
- *
- *   const MY_ADDRESSES = ['@sleek.design', 'old.name@gmail.com']
- *
- * Addresses the mod sees are logged to the console as `[gmail-copy-email]`,
- * which is the quickest way to fill this in.
- */
-const MY_ADDRESSES: string[] = []
 
 const CLASS = 'sc-gmail-copy-email'
 /**
- * Sender (.gD) and recipients (.g2) in an open message. Gmail stores the
- * address in an `email` attribute, so there is no text to parse. `.adn` is the
- * open-message container, included so this still works if either of the first
- * two class names churns.
- *
- * Deliberately not the thread list, which would put an icon on every row.
+ * The sender of an open message. Gmail stores the address in an `email`
+ * attribute, so there is no "Name <addr>" text to parse. Recipients (.g2) are
+ * deliberately left out, as is the thread list, which would put an icon on
+ * every row.
  */
-const TARGETS = 'span.gD[email], span.g2[email], .adn span[email]'
+const TARGET = 'span.gD[email]'
 
 const COPY =
   '<path d="M13 1H3a1 1 0 0 0-1 1v10h2V3h9V1Zm2 3H6a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1Zm-1 11H7V6h7v9Z"/>'
 const DONE = '<path d="M7.6 13.4 3.2 9l1.4-1.4 3 3 6.8-6.8L15.8 5 7.6 13.4Z"/>'
+const icon = (path: string) => `<svg viewBox="0 0 18 18" aria-hidden="true">${path}</svg>`
 
 const STYLES = `
 .${CLASS} {
@@ -55,86 +39,26 @@ const STYLES = `
 .${CLASS}[data-copied="true"] { opacity: 1; color: #188038; }
 `
 
-const ACCOUNT = 'a[aria-label*="Google Account"], a[href*="SignOutOptions"]'
-const ADDRESS = /[\w.+-]+@[\w-]+\.[\w.-]+/g
-
-/**
- * The signed-in account's own address, so we can leave its copy button off.
- * Two independent sources, because either alone can be missing early on:
- * Gmail's title is "<subject> - <account> - Gmail", and the account button's
- * aria-label carries the address too.
- */
-function readOwnAddresses(): Set<string> {
-  const found = new Set<string>()
-
-  // Anchored to the title's exact shape — a bare address match would also pick
-  // up an address that happens to be in the subject line.
-  const title = document.title.match(/ - ([\w.+-]+@[\w-]+\.[\w.-]+) - Gmail\s*$/)
-  if (title?.[1]) found.add(title[1].toLowerCase())
-
-  for (const el of document.querySelectorAll(ACCOUNT)) {
-    for (const m of (el.getAttribute('aria-label') ?? '').matchAll(ADDRESS)) {
-      found.add(m[0].toLowerCase())
-    }
-  }
-  return found
-}
-
-/**
- * Resolve before adding any buttons, so we never briefly add one to your own
- * address and leave it there. Fails open: if the account never resolves we
- * show every button rather than none.
- */
-async function resolveOwnAddresses(ctx: ModContext): Promise<Set<string>> {
-  const early = readOwnAddresses()
-  if (early.size > 0) return early
-
-  await ctx.waitFor(ACCOUNT, { timeout: 10_000 }).catch(() => null)
-  return readOwnAddresses()
-}
-
-/** Exact address, configured domain, or Gmail's own "me" marker on the span. */
-function isMine(span: HTMLElement, email: string, detected: Set<string>): boolean {
-  const addr = email.toLowerCase()
-  if (detected.has(addr)) return true
-  if (span.getAttribute('name')?.toLowerCase() === 'me') return true
-  return MY_ADDRESSES.some((entry) => {
-    const e = entry.trim().toLowerCase()
-    return e.startsWith('@') ? addr.endsWith(e) : addr === e
-  })
-}
-
 export default defineMod({
   id: 'gmail-copy-email',
-  name: 'Copy email address',
-  description: 'Icon next to the sender and recipients that copies their address.',
+  name: 'Copy sender address',
+  description: "Icon next to the sender that copies their email address.",
   matches: ['*://mail.google.com/*'],
 
-  async run(ctx) {
+  run(ctx) {
     ctx.css(STYLES)
 
-    const mine = await resolveOwnAddresses(ctx)
-    ctx.log(mine.size > 0 ? `own address: ${[...mine].join(', ')}` : 'own address unknown — showing all')
-    if (MY_ADDRESSES.length > 0) ctx.log('also treated as yours:', MY_ADDRESSES.join(', '))
-    const seen = new Set<string>()
-
-    ctx.onElement<HTMLElement>(TARGETS, (span) => {
+    ctx.onElement<HTMLElement>(TARGET, (span) => {
       const email = span.getAttribute('email')
       if (!email?.includes('@')) return
       if (span.nextElementSibling?.classList.contains(CLASS)) return
-
-      if (isMine(span, email, mine)) return
-      if (!seen.has(email.toLowerCase())) {
-        seen.add(email.toLowerCase())
-        ctx.log('showing copy button for', email)
-      }
 
       const button = document.createElement('button')
       button.className = CLASS
       button.type = 'button'
       button.title = `Copy ${email}`
       button.setAttribute('aria-label', `Copy ${email}`)
-      button.innerHTML = `<svg viewBox="0 0 18 18" aria-hidden="true">${COPY}</svg>`
+      button.innerHTML = icon(COPY)
 
       let timer: ReturnType<typeof setTimeout> | undefined
       button.addEventListener('click', async (event) => {
@@ -145,11 +69,11 @@ export default defineMod({
         try {
           await copyText(email)
           button.dataset.copied = 'true'
-          button.innerHTML = `<svg viewBox="0 0 18 18" aria-hidden="true">${DONE}</svg>`
+          button.innerHTML = icon(DONE)
           clearTimeout(timer)
           timer = setTimeout(() => {
             delete button.dataset.copied
-            button.innerHTML = `<svg viewBox="0 0 18 18" aria-hidden="true">${COPY}</svg>`
+            button.innerHTML = icon(COPY)
           }, 1200)
         } catch (err) {
           ctx.log('copy failed', err)
