@@ -71,7 +71,15 @@ Content scripts are injected per *origin* rather than per match pattern. You can
 `youtube.com` and navigate to a video without a fresh injection, which is exactly when a
 pattern-scoped injection would fail to appear.
 
-## Included mod
+## Included mods
+
+**Copy sender address** (`mail.google.com`) — adds a copy icon beside the sender.
+For group-forwarded messages whose sender name contains “via”, it reads that message's
+original headers and copies the Reply-To address instead of the group's From address.
+The lookup also works from collapsed headers. If Gmail has not loaded the message ID,
+Copy opens that message and finishes the lookup automatically. A brief notification
+confirms the copied address or explains an error without changing the message layout.
+Ordinary messages copy the visible sender directly.
 
 **Copy transcript button** (`youtube.com/watch`) — adds a Transcript button to the
 button row under the video. Click copies the transcript as prose; shift-click copies it

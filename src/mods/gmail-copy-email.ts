@@ -1,12 +1,13 @@
 import { defineMod } from '../core/define'
 import { copyText } from '../core/clipboard'
+import { createSenderResolver, messageContainer } from './gmail-copy-email/sender'
 
 const CLASS = 'sc-gmail-copy-email'
 /**
  * The sender of an open message. Gmail stores the address in an `email`
- * attribute, so there is no "Name <addr>" text to parse. Recipients (.g2) are
- * deliberately left out, as is the thread list, which would put an icon on
- * every row.
+ * attribute. For group-forwarded "via" messages this is the group address;
+ * resolveSender reads the original Reply-To instead. Recipients (.g2) and
+ * the thread list are deliberately left out.
  */
 const TARGET = 'span.gD[email]'
 /**
@@ -52,6 +53,25 @@ const STYLES = `
 .${CLASS}:hover { opacity: 1; background: rgba(127, 127, 127, 0.2); }
 .${CLASS} svg { width: 14px; height: 14px; fill: currentColor; display: block; }
 .${CLASS}[data-copied="true"] { opacity: 1; color: #188038; }
+.${CLASS}[data-error="true"] { opacity: 1; color: #d93025; }
+.${CLASS}:disabled { cursor: progress; }
+.${CLASS}-status {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2147483647;
+  box-sizing: border-box;
+  max-width: min(360px, calc(100vw - 40px));
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #303134;
+  color: #fff;
+  font: 14px/1.4 Arial, sans-serif;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
 `
 
 export default defineMod({
@@ -62,8 +82,26 @@ export default defineMod({
 
   run(ctx) {
     ctx.css(STYLES)
+    const resolveSender = createSenderResolver(ctx.url, ctx.signal)
+    const status = document.createElement('div')
+    status.className = `${CLASS}-status`
+    status.setAttribute('role', 'status')
+    let statusTimer: ReturnType<typeof setTimeout> | undefined
+    const clearStatus = () => {
+      clearTimeout(statusTimer)
+      status.remove()
+    }
+    const showStatus = (text: string) => {
+      clearStatus()
+      status.textContent = text
+      document.body.append(status)
+      statusTimer = setTimeout(clearStatus, 4000)
+    }
+    ctx.onCleanup(clearStatus)
 
     ctx.onElement<HTMLElement>(TARGET, (span) => {
+      // The details popup repeats the From row; keep one button on the header.
+      if (span.closest('.ajA')) return
       const email = span.getAttribute('email')
       if (!email?.includes('@')) return
 
@@ -76,8 +114,12 @@ export default defineMod({
       const button = document.createElement('button')
       button.className = CLASS
       button.type = 'button'
-      button.title = `Copy ${email}`
-      button.setAttribute('aria-label', `Copy ${email}`)
+      const label = 'Copy sender address'
+      const setLabel = (text: string) => {
+        button.title = text
+        button.setAttribute('aria-label', text)
+      }
+      setLabel(label)
       button.innerHTML = icon(COPY)
 
       let timer: ReturnType<typeof setTimeout> | undefined
@@ -85,18 +127,41 @@ export default defineMod({
         // Gmail opens a contact card on clicks anywhere in this header.
         event.preventDefault()
         event.stopPropagation()
+        if (button.disabled) return
+        button.disabled = true
+        clearTimeout(timer)
+        clearStatus()
+        delete button.dataset.copied
+        delete button.dataset.error
+        button.innerHTML = icon(COPY)
+        setLabel('Finding sender address…')
 
         try {
-          await copyText(email)
+          const message = messageContainer(span) ?? span
+          const address = await resolveSender(span)
+          if (ctx.signal.aborted || !message.isConnected) return
+          await copyText(address)
+          if (ctx.signal.aborted) return
+          showStatus(`Copied ${address}`)
+          setLabel(`Copied ${address}`)
           button.dataset.copied = 'true'
           button.innerHTML = icon(DONE)
           clearTimeout(timer)
           timer = setTimeout(() => {
             delete button.dataset.copied
             button.innerHTML = icon(COPY)
+            setLabel(`Copy ${address}`)
           }, 1200)
         } catch (err) {
+          if (ctx.signal.aborted) return
           ctx.log('copy failed', err)
+          button.dataset.error = 'true'
+          button.textContent = '!'
+          const message = err instanceof Error ? err.message : 'Could not copy sender address; try again'
+          setLabel(message)
+          showStatus(message)
+        } finally {
+          button.disabled = false
         }
       })
 
