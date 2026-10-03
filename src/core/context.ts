@@ -1,5 +1,5 @@
 import type { Mod, ModContext } from './types'
-import { watch } from './observer'
+import { onMutation, watch } from './observer'
 
 export interface RunningMod {
   stop(): void
@@ -33,6 +33,10 @@ export function runMod(mod: Mod, url: string): RunningMod {
     onElement(selector, fn) {
       const unwatch = watch(selector, fn)
       ctx.onCleanup(unwatch)
+    },
+
+    onDomChange(fn) {
+      ctx.onCleanup(onMutation(fn))
     },
 
     waitFor(selector, opts = {}) {

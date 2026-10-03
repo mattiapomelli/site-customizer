@@ -13,6 +13,11 @@ export interface ModContext {
   ): Promise<T>
   /** Call `fn` for every current and future element matching `selector`, once each. */
   onElement<T extends Element = Element>(selector: string, fn: (el: T) => void): void
+  /**
+   * Call `fn` now and after DOM changes, at most once per frame. For UI the page
+   * may tear out while keeping the elements `onElement` already reported.
+   */
+  onDomChange(fn: () => void): void
   /** Run `fn` when the mod stops. */
   onCleanup(fn: () => void): void
   log(...args: unknown[]): void

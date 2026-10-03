@@ -104,18 +104,30 @@ export default defineMod({
   run(ctx) {
     ctx.css(STYLES)
 
-    // Keyed on the reference button, not the row: the row exists before
-    // YouTube has rendered the buttons we want to copy.
-    ctx.onElement<HTMLButtonElement>(REFERENCE, (reference) => {
-      const row = reference.closest(ROW_ID)
-      if (!row || row.querySelector(`.${CLASS}`)) return
+    let button: Button | null = null
 
+    // Re-checked on every DOM change rather than once per element: moving to
+    // another video re-renders the row and drops our button, but keeps the
+    // same Share button, so `onElement` would never fire for it again.
+    // Waiting on the reference button, not the row, because the row exists
+    // before YouTube has rendered the buttons we want to copy.
+    ctx.onDomChange(() => {
+      const reference = document.querySelector<HTMLButtonElement>(REFERENCE)
+      const row = reference?.closest(ROW_ID)
+      if (!reference || !row || button?.el.parentElement === row) return
+
+      button ??= create(reference)
+      button.el.style.marginLeft = `${gapBetweenItems(row)}px`
+      row.append(button.el)
+    })
+    ctx.onCleanup(() => button?.el.remove())
+
+    function create(reference: HTMLButtonElement): Button {
       const button = cloneNative(reference) ?? buildFallback()
       const { el, setLabel } = button
 
       el.classList.add(CLASS)
       el.title = TITLE
-      el.style.marginLeft = `${gapBetweenItems(row)}px`
       setLabel(IDLE)
 
       let busy = false
@@ -140,8 +152,7 @@ export default defineMod({
         }
       })
 
-      row.append(el)
-      ctx.onCleanup(() => el.remove())
-    })
+      return button
+    }
   },
 })
