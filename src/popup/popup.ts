@@ -1,5 +1,5 @@
 import { mods } from '../mods'
-import { matchesAny } from '../core/match'
+import { matchesSite } from '../core/match'
 import {
   getSettings,
   isModEnabled,
@@ -56,7 +56,7 @@ function render(settings: Settings, url: string | undefined): void {
     siteSection.hidden = false
   }
 
-  const active = url ? mods.filter((m) => matchesAny(m.matches, url)) : []
+  const active = url ? mods.filter((m) => matchesSite(m.matches, url)) : []
   list.replaceChildren(
     ...active.map((mod) =>
       row(mod.name, mod.description ?? '', isModEnabled(settings, mod), (enabled) => {

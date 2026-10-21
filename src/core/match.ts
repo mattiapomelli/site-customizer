@@ -42,3 +42,12 @@ export function matchesPattern(pattern: string, url: string): boolean {
 export function matchesAny(patterns: readonly string[], url: string): boolean {
   return patterns.some((p) => matchesPattern(p, url))
 }
+
+/** `*://*.youtube.com/watch*` -> `*://*.youtube.com/*` */
+export const toOrigin = (pattern: string): string =>
+  pattern === '<all_urls>' ? pattern : pattern.replace(/^([^:]+:\/\/[^/]+)\/.*$/, '$1/*')
+
+/** True when `url` is on a site any pattern covers, whatever its path. */
+export function matchesSite(patterns: readonly string[], url: string): boolean {
+  return matchesAny(patterns.map(toOrigin), url)
+}

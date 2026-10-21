@@ -67,6 +67,10 @@ A mod runs exactly when it's enabled *and* the current URL matches. Toggling it 
 navigating away, calls every cleanup it registered — no page reload needed. Soft
 navigations restart mods, so `run()` can assume it's looking at a fresh page.
 
+The popup lists every mod for the current site, not only those matching the current
+page. A redirect mod only matches pages it leaves at once, so this is where its toggle
+stays reachable.
+
 Content scripts are injected per *origin* rather than per match pattern. You can land on
 `youtube.com` and navigate to a video without a fresh injection, which is exactly when a
 pattern-scoped injection would fail to appear.

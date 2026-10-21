@@ -1,6 +1,6 @@
 import { build, context } from 'esbuild'
 import { cpSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -21,13 +21,19 @@ const shared = {
 
 /**
  * Read the mod registry to find which sites we actually touch, so the content
- * script is only injected there instead of on every page.
+ * script is only injected there instead of on every page. `toOrigin` comes from
+ * the same bundle so the popup and the manifest agree on what a site is.
  */
 async function loadMods() {
   const file = join(tmpdir(), `sc-mods-${Date.now()}.mjs`)
   // ESM here regardless of the extension bundle format — we import it back.
   await build({
-    entryPoints: ['src/mods/index.ts'],
+    stdin: {
+      contents: `export { mods } from './src/mods/index.ts'
+export { toOrigin } from './src/core/match.ts'`,
+      resolveDir: fileURLToPath(new URL('..', import.meta.url)),
+      loader: 'ts',
+    },
     outfile: file,
     ...shared,
     format: 'esm',
@@ -35,19 +41,14 @@ async function loadMods() {
     logLevel: 'silent',
   })
   try {
-    const { mods } = await import(pathToFileURL(file).href)
-    return mods
+    return await import(pathToFileURL(file).href)
   } finally {
     rmSync(file, { force: true })
   }
 }
 
-/** `*://*.youtube.com/watch*` -> `*://*.youtube.com/*` */
-const toOrigin = (pattern) =>
-  pattern === '<all_urls>' ? pattern : pattern.replace(/^([^:]+:\/\/[^/]+)\/.*$/, '$1/*')
-
 async function writeManifest() {
-  const mods = await loadMods()
+  const { mods, toOrigin } = await loadMods()
   const origins = [...new Set(mods.flatMap((m) => m.matches).map(toOrigin))]
 
   const manifest = {
