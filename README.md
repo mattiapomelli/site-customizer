@@ -107,6 +107,12 @@ The page stays hidden until the redirect lands, and `window.stop()` halts the fe
 before X's app boots, so the timeline is never fetched. It uses `location.replace`, so the
 feed never enters history and Back works.
 
+**Skip the feed** (`www.youtube.com`) — opening YouTube, or clicking its logo, lands on
+my channel instead of the home feed. It redirects the same way as the X mod, so the feed
+never renders and never enters history. Unlike X, YouTube puts the first screen of
+recommendations in the page's HTML (`ytInitialData`), so those are picked before the
+redirect can act. They are never shown.
+
 ## Layout
 
 ```
