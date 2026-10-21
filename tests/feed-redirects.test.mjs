@@ -53,7 +53,7 @@ const cases = [
   ],
 ]
 
-function runWithStubbedNavigation(mod, url) {
+function run(mod, url, navigation) {
   const calls = []
   const stubs = {
     location: {
@@ -61,6 +61,7 @@ function runWithStubbedNavigation(mod, url) {
       assign: (target) => calls.push(['assign', target]),
     },
     window: { stop: () => calls.push(['stop']) },
+    navigation,
   }
   const saved = Object.fromEntries(
     Object.keys(stubs).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]),
@@ -72,7 +73,7 @@ function runWithStubbedNavigation(mod, url) {
     mod.run({
       url,
       signal: new AbortController().signal,
-      css() {},
+      css: () => calls.push(['hide']),
       log() {},
       onCleanup() {},
       onElement() {},
@@ -87,6 +88,12 @@ function runWithStubbedNavigation(mod, url) {
   return calls
 }
 
+/** A page reached by `navigationType`, then navigated within if `inPage`. */
+function navigation(navigationType, { inPage = false } = {}) {
+  const entry = {}
+  return { activation: { navigationType, entry }, currentEntry: inPage ? {} : entry }
+}
+
 for (const [mod, target, redirecting, staying] of cases) {
   for (const url of redirecting) {
     test(`${mod.id}: ${url} redirects`, () => {
@@ -99,7 +106,23 @@ for (const [mod, target, redirecting, staying] of cases) {
     })
   }
 
-  test(`${mod.id}: run() stops the page, then replaces it with ${target} without a history entry`, () => {
-    assert.deepEqual(runWithStubbedNavigation(mod, redirecting[0]), [['stop'], ['replace', target]])
+  for (const navigationType of ['push', 'replace']) {
+    test(`${mod.id}: a fresh ${navigationType} arrival hides and stops the page, then replaces it with ${target}`, () => {
+      assert.deepEqual(run(mod, redirecting[0], navigation(navigationType)), [
+        ['hide'],
+        ['stop'],
+        ['replace', target],
+      ])
+    })
+  }
+
+  for (const navigationType of ['reload', 'traverse']) {
+    test(`${mod.id}: a ${navigationType} leaves the feed alone`, () => {
+      assert.deepEqual(run(mod, redirecting[0], navigation(navigationType)), [])
+    })
+  }
+
+  test(`${mod.id}: an in-page navigation to the feed leaves it alone`, () => {
+    assert.deepEqual(run(mod, redirecting[0], navigation('push', { inPage: true })), [])
   })
 }

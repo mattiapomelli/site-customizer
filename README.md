@@ -68,8 +68,8 @@ navigating away, calls every cleanup it registered — no page reload needed. So
 navigations restart mods, so `run()` can assume it's looking at a fresh page.
 
 The popup lists every mod for the current site, not only those matching the current
-page. A redirect mod only matches pages it leaves at once, so this is where its toggle
-stays reachable.
+page. A redirect mod only matches the feed pages it redirects from, so listing by site
+keeps its toggle reachable everywhere on the site.
 
 Content scripts are injected per *origin* rather than per match pattern. You can land on
 `youtube.com` and navigate to a video without a fresh injection, which is exactly when a
@@ -105,17 +105,18 @@ not merely fragile:
 `FAILED_PRECONDITION`. Keeping either path as a fallback would add latency and code that
 can never succeed.
 
-**Skip the feed** (`x.com`, `twitter.com`) — opening X, or clicking its Home tab, lands
-on my profile instead of the timeline, so chat and search are reachable without the feed.
-The page stays hidden until the redirect lands, and `window.stop()` halts the feed page
-before X's app boots, so the timeline is never fetched. It uses `location.replace`, so the
-feed never enters history and Back works.
+**Skip the feed** (`x.com`, `twitter.com`) — opening X fresh (typed URL, bookmark, link)
+lands on my profile instead of the timeline, so chat and search are reachable without the
+feed. It is a speed bump, not a block. Clicking Home, reloading, or going Back still
+reaches the timeline. On a fresh visit the page stays hidden until the redirect lands, and
+`window.stop()` halts the feed page before X's app boots, so the timeline is never
+fetched. It uses `location.replace`, so the feed never enters history and Back works.
 
-**Skip the feed** (`www.youtube.com`) — opening YouTube, or clicking its logo, lands on
-my channel instead of the home feed. It redirects the same way as the X mod, so the feed
-never renders and never enters history. Unlike X, YouTube puts the first screen of
-recommendations in the page's HTML (`ytInitialData`), so those are picked before the
-redirect can act. They are never shown.
+**Skip the feed** (`www.youtube.com`) — opening YouTube fresh lands on my channel
+instead of the home feed. Clicking the logo, reloading, or going Back still reaches the
+feed. It redirects the same way as the X mod, so the feed never renders and never enters
+history. Unlike X, YouTube puts the first screen of recommendations in the page's HTML
+(`ytInitialData`), so those are picked before the redirect can act. They are never shown.
 
 ## Layout
 
