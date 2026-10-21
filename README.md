@@ -101,6 +101,12 @@ not merely fragile:
 `FAILED_PRECONDITION`. Keeping either path as a fallback would add latency and code that
 can never succeed.
 
+**Skip the feed** (`x.com`, `twitter.com`) — opening X, or clicking its Home tab, lands
+on my profile instead of the timeline, so chat and search are reachable without the feed.
+The page stays hidden until the redirect lands, and `window.stop()` halts the feed page
+before X's app boots, so the timeline is never fetched. It uses `location.replace`, so the
+feed never enters history and Back works.
+
 ## Layout
 
 ```
