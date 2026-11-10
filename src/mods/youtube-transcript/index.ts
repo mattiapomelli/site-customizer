@@ -26,8 +26,8 @@ const STYLES = `
   padding: 0 16px 0 12px;
   border: none;
   border-radius: 18px;
-  background: var(--yt-spec-badge-chip-background, rgba(0, 0, 0, 0.05));
-  color: var(--yt-spec-text-primary, #0f0f0f);
+  background: rgba(128, 128, 128, 0.2);
+  color: inherit;
   font-family: "Roboto", "Arial", sans-serif;
   font-size: 14px;
   font-weight: 500;
@@ -35,7 +35,7 @@ const STYLES = `
   white-space: nowrap;
   cursor: pointer;
 }
-.${CLASS}-fallback:hover { background: var(--yt-spec-10-percent-layer, rgba(0, 0, 0, 0.1)); }
+.${CLASS}-fallback:hover { background: rgba(128, 128, 128, 0.3); }
 .${CLASS}-fallback svg { width: 24px; height: 24px; fill: currentColor; }
 `
 
@@ -62,9 +62,10 @@ function cloneNative(reference: HTMLButtonElement): Button | null {
     el.removeAttribute(attr)
   }
 
-  const [icon, label] = el.children
+  const [icon, existing] = el.children
   const svg = icon?.querySelector('svg')
-  if (!svg || !(label instanceof HTMLElement)) return null
+  if (!icon || !svg) return null
+  const label = existing instanceof HTMLElement ? existing : addLabel(el, icon)
 
   svg.replaceChildren()
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
@@ -72,6 +73,21 @@ function cloneNative(reference: HTMLButtonElement): Button | null {
   svg.append(path)
 
   return { el, setLabel: (text) => (label.textContent = text) }
+}
+
+/**
+ * Share is icon-only in the current layout. Turn the clone into the
+ * icon-plus-text variant the Like button uses: swap the shape modifier and add
+ * a text element, deriving both class names from the ones on the page.
+ */
+function addLabel(el: HTMLButtonElement, icon: Element): HTMLElement {
+  for (const cls of [...el.classList]) {
+    if (cls.endsWith('IconButton')) el.classList.replace(cls, cls.replace(/IconButton$/, 'IconLeading'))
+  }
+  const label = document.createElement('div')
+  label.className = icon.className.replace(/Icon\b/, 'ButtonTextContent')
+  el.append(label)
+  return label
 }
 
 /** Used only if YouTube's markup changes enough that there is nothing to clone. */
